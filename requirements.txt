@@ -1,0 +1,7 @@
+# Libras Recognizer demo. Install with:  pip install -r requirements.txt
+fastapi>=0.110
+uvicorn[standard]>=0.29          # [standard] adds WebSocket support
+mediapipe>=1.2.2,<2              # Tasks API HolisticLandmarker (hands + pose + face)
+numpy>=1.26
+opencv-contrib-python>=4.9       # comes with mediapipe; don't also install opencv-python
+scikit-learn>=1.4

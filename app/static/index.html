@@ -1,0 +1,1013 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Libras Recognizer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%A4%9F%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0e1116;
+    --panel: #161b22;
+    --panel-2: #1d232c;
+    --line: #2a313c;
+    --text: #e8edf3;
+    --muted: #8b96a5;
+    --accent: #3fb68b;
+    --accent-2: #2c8f6b;
+    --warn: #f2b84b;
+    --bad: #ef6461;
+    --left: #4cc9f0;
+    --right: #ffb347;
+    --radius: 12px;
+    --header-h: 56px;
+    --history-h: 112px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
+  body { overflow: hidden; }
+  button, input, select { font: inherit; color: inherit; }
+  button {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 8px 14px; cursor: pointer; transition: background .15s, border-color .15s;
+  }
+  button:hover:not(:disabled) { border-color: #3b4552; background: #232a35; }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent-2); border-color: var(--accent); color: #fff; }
+  button.primary:hover:not(:disabled) { background: var(--accent); }
+  button.danger { color: var(--bad); }
+  button.big { padding: 12px 18px; font-size: 1.05rem; }
+  kbd {
+    font: 600 .72rem ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1px 5px;
+    border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; color: var(--muted);
+  }
+
+  /* ---------- header ---------- */
+  header {
+    height: var(--header-h); display: flex; align-items: center; gap: 14px; padding: 0 18px;
+    border-bottom: 1px solid var(--line); background: var(--panel);
+  }
+  header h1 { font-size: 1.05rem; margin: 0; font-weight: 650; letter-spacing: .2px; }
+  header h1 span { color: var(--accent); }
+  .status { display: flex; gap: 8px; margin-left: auto; align-items: center; flex-wrap: wrap; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+    background: var(--panel-2); border: 1px solid var(--line); font-size: .82rem; color: var(--muted);
+    white-space: nowrap;
+  }
+  .pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+  .pill.ok { color: var(--text); }
+  .pill.ok .dot { background: var(--accent); }
+  .pill .tick { font-weight: 700; color: var(--bad); }
+  .pill.ok .tick { color: var(--accent); }
+  #settingsBtn { padding: 6px 10px; }
+
+  /* ---------- layout ---------- */
+  main {
+    display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px;
+    height: calc(100vh - var(--header-h)); padding: 16px;
+  }
+  .left { display: flex; flex-direction: column; gap: 12px; min-width: 0; min-height: 0; }
+  .stage-wrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+  .stage {
+    position: relative; background: #000; border-radius: var(--radius); overflow: hidden;
+    border: 1px solid var(--line); width: 640px; height: 480px;
+  }
+  .stage.signing { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+  .stage.recording { border-color: var(--bad); box-shadow: 0 0 0 3px var(--bad); }
+  .media { position: absolute; inset: 0; }
+  .media.mirror { transform: scaleX(-1); }
+  .media video, .media canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .media video { object-fit: fill; }
+
+  .badge {
+    position: absolute; top: 12px; left: 12px; padding: 6px 12px; border-radius: 999px;
+    background: rgba(0,0,0,.6); font-size: .9rem; font-weight: 600; backdrop-filter: blur(4px);
+  }
+  .badge.signing { background: var(--accent-2); }
+  .badge.recording { background: var(--bad); }
+  .badge.countdown { background: #6b5bd6; }
+  .badge.paused { background: #555; }
+  .rest-label {
+    position: absolute; right: 10px; transform: translateY(-125%); font-size: .75rem; font-weight: 600;
+    color: var(--warn); pointer-events: none; background: rgba(0,0,0,.55); padding: 2px 8px; border-radius: 99px;
+  }
+
+  .result {
+    position: absolute; left: 16px; bottom: 16px; min-width: 200px; max-width: 70%;
+    padding: 14px 20px; border-radius: 14px; background: rgba(10,12,16,.78);
+    backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,.08);
+    transition: opacity .6s; display: none;
+  }
+  .result.show { display: block; }
+  .result.faded { opacity: .45; }
+  .result .label { font-size: clamp(2.6rem, 7vw, 5.5rem); font-weight: 800; line-height: 1; letter-spacing: 1px; }
+  .result .conf { margin-top: 6px; font-size: 1.1rem; font-weight: 600; }
+  .result .alts { margin-top: 4px; color: var(--muted); font-size: .95rem; }
+  .result.unknown .label { font-size: clamp(1.4rem, 3vw, 2.2rem); color: var(--muted); }
+  .conf.high { color: var(--accent); }
+  .conf.mid { color: var(--warn); }
+
+  .prompt {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    padding: 10px 18px; border-radius: 12px; background: rgba(107,91,214,.92); font-weight: 700;
+    font-size: 1.3rem; display: none; align-items: center; gap: 12px; white-space: nowrap;
+  }
+  .prompt.show { display: flex; }
+  .prompt.ok { background: rgba(44,143,107,.95); }
+  .prompt button { background: transparent; border: none; padding: 0 4px; font-size: 1.1rem; opacity: .8; }
+
+  .overlay-center {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    flex-direction: column; gap: 14px; pointer-events: none; text-align: center;
+  }
+  .overlay-center.show { display: flex; }
+  .overlay-center.bottom { justify-content: flex-end; padding-bottom: 18px; }
+  .stage.teaching .result { display: none; }
+  .cd-num { font-size: 9rem; font-weight: 900; text-shadow: 0 4px 24px rgba(0,0,0,.7); line-height: 1; }
+  .rec-box, .review-box {
+    background: rgba(10,12,16,.82); padding: 16px 22px; border-radius: 14px; pointer-events: auto;
+    min-width: 280px; backdrop-filter: blur(6px);
+  }
+  .rec-box .title { font-weight: 700; font-size: 1.2rem; color: var(--bad); }
+  .bar { height: 8px; background: var(--line); border-radius: 99px; overflow: hidden; margin-top: 10px; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); transition: width .1s linear; }
+  .rec-box .bar > div { background: var(--bad); }
+  .review-box .title { font-weight: 700; font-size: 1.2rem; margin-bottom: 8px; }
+  .review-box .btns { display: flex; gap: 10px; justify-content: center; margin-top: 12px; }
+  .warnings { margin: 6px 0 0; padding: 0; list-style: none; }
+  .warnings li { color: var(--warn); margin: 4px 0; }
+  .warnings li::before { content: "⚠ "; }
+  .warnings li.ok { color: var(--accent); }
+  .warnings li.ok::before { content: "✔ "; }
+
+  .camera-msg {
+    position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    padding: 30px; text-align: center; color: var(--muted); font-size: 1.05rem; line-height: 1.5;
+  }
+  .camera-msg.show { display: flex; }
+
+  /* ---------- history ---------- */
+  .history {
+    height: var(--history-h); flex: none; background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px;
+  }
+  .history .head { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: .85rem; }
+  .history .head .spacer { flex: 1; }
+  .history .head button { padding: 3px 10px; font-size: .8rem; }
+  .chips { display: flex; gap: 8px; overflow-x: auto; align-items: center; flex: 1; scrollbar-width: thin; }
+  .chip {
+    flex: none; padding: 6px 12px; border-radius: 10px; background: var(--panel-2);
+    border: 1px solid var(--line); font-weight: 700; font-size: 1.15rem;
+  }
+  .chip small { font-weight: 500; color: var(--muted); font-size: .75rem; margin-left: 6px; }
+  .chip.word { color: var(--muted); font-weight: 600; }
+  .chip.current {
+    font-size: 2rem; letter-spacing: .45em; padding: 2px 6px 2px 16px; color: var(--text);
+    background: transparent; border: none; font-weight: 800;
+  }
+  .empty-hint { color: var(--muted); font-size: .9rem; }
+
+  /* ---------- side panel ---------- */
+  aside {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .tabs { display: flex; border-bottom: 1px solid var(--line); }
+  .tabs button {
+    flex: 1; border: none; border-radius: 0; background: transparent; padding: 14px 8px;
+    color: var(--muted); font-weight: 600; border-bottom: 2px solid transparent;
+  }
+  .tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab { display: none; padding: 16px; overflow-y: auto; flex: 1; min-height: 0; }
+  .tab.active { display: block; }
+  .tab h2 { font-size: 1rem; margin: 0 0 10px; }
+  .tab p { color: var(--muted); line-height: 1.45; margin: 8px 0; font-size: .92rem; }
+  .row { display: flex; gap: 10px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+  .toggle { display: flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; }
+  .toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .card { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin: 12px 0; }
+  .scores .s { display: grid; grid-template-columns: 80px 1fr 48px; gap: 8px; align-items: center; margin: 6px 0; }
+  .scores .s .name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .scores .s .pct { text-align: right; color: var(--muted); font-size: .85rem; }
+  .scores .bar { margin: 0; }
+
+  label.field { display: block; font-size: .85rem; color: var(--muted); margin: 14px 0 6px; }
+  input[type=text] {
+    width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--bg); font-size: 1.15rem; font-weight: 700; text-transform: uppercase;
+  }
+  input[type=text]:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .kinds { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .kinds label {
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px; cursor: pointer; background: var(--bg);
+  }
+  .kinds label b { display: block; margin-bottom: 2px; }
+  .kinds label span { color: var(--muted); font-size: .8rem; }
+  .kinds input { display: none; }
+  .kinds label:has(input:checked) { border-color: var(--accent); background: rgba(63,182,139,.1); }
+  .teach-title { font-size: 1.6rem; font-weight: 800; }
+  .teach-title small { font-size: .85rem; color: var(--muted); font-weight: 500; margin-left: 6px; }
+  .takes { display: flex; justify-content: space-between; color: var(--muted); font-size: .85rem; margin-top: 12px; }
+  .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .btn-grid .full { grid-column: 1 / -1; }
+  .note { font-size: .8rem; color: var(--muted); }
+
+  /* library */
+  .lib-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .sign { border: 1px solid var(--line); border-radius: 10px; margin: 10px 0; background: var(--panel-2); }
+  .sign-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; }
+  .sign-head .name { font-size: 1.25rem; font-weight: 800; flex: 1; overflow: hidden; text-overflow: ellipsis; }
+  .kind-badge { font-size: .72rem; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  .count { color: var(--muted); font-size: .85rem; }
+  .flag { color: var(--warn); font-size: .85rem; }
+  .sign-body { display: none; padding: 0 12px 12px; }
+  .sign.open .sign-body { display: block; }
+  .samples { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .sample { position: relative; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #000; }
+  .sample canvas { display: block; width: 100%; aspect-ratio: 4 / 3; }
+  .sample.flagged { border-color: var(--warn); }
+  .sample .del {
+    position: absolute; top: 4px; right: 4px; padding: 0 7px; font-size: .9rem; line-height: 1.5;
+    background: rgba(0,0,0,.65); border-color: transparent;
+  }
+  .sample .tag {
+    position: absolute; left: 0; right: 0; bottom: 0; font-size: .7rem; padding: 2px 6px;
+    background: rgba(242,184,75,.9); color: #000; font-weight: 600;
+  }
+  .sign-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+  /* settings dialog */
+  dialog {
+    background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 14px;
+    padding: 20px 22px; width: min(440px, 92vw);
+  }
+  dialog::backdrop { background: rgba(0,0,0,.55); }
+  dialog h2 { margin: 0 0 6px; font-size: 1.1rem; }
+  dialog .set { margin: 16px 0; }
+  dialog .set .lbl { display: flex; justify-content: space-between; font-size: .9rem; margin-bottom: 6px; }
+  dialog .set .lbl span { color: var(--muted); }
+  dialog input[type=range] { width: 100%; accent-color: var(--accent); }
+  dialog select { width: 100%; padding: 8px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); }
+  dialog .hint { font-size: .78rem; color: var(--muted); margin-top: 4px; }
+
+  /* toasts */
+  .toasts { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 10; }
+  .toast {
+    background: var(--panel-2); border: 1px solid var(--line); border-left: 4px solid var(--warn);
+    padding: 10px 14px; border-radius: 8px; max-width: 360px; box-shadow: 0 6px 20px rgba(0,0,0,.4);
+    font-size: .92rem;
+  }
+  .toast.ok { border-left-color: var(--accent); }
+  .toast.bad { border-left-color: var(--bad); }
+
+  @media (max-width: 960px) {
+    body { overflow: auto; }
+    main { grid-template-columns: 1fr; height: auto; }
+    .stage-wrap { min-height: 260px; }
+    aside { min-height: 420px; }
+    header { flex-wrap: wrap; height: auto; padding: 10px 16px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Libras <span>Recognizer</span></h1>
+  <div class="status">
+    <span class="pill" id="pillConn"><span class="dot"></span><span id="connText">Python disconnected</span></span>
+    <span class="pill" id="pillFps">– fps</span>
+    <span class="pill" id="pillLeft"><span class="tick">✖</span> left hand</span>
+    <span class="pill" id="pillRight"><span class="tick">✖</span> right hand</span>
+    <span class="pill" id="pillFace"><span class="tick">✖</span> face</span>
+    <button id="settingsBtn" title="Settings">⚙ Settings</button>
+  </div>
+</header>
+
+<main>
+  <section class="left">
+    <div class="stage-wrap" id="stageWrap">
+      <div class="stage" id="stage">
+        <div class="media mirror" id="media">
+          <video id="video" autoplay playsinline muted></video>
+          <canvas id="overlay"></canvas>
+        </div>
+        <div class="rest-label" id="restLabel" style="display:none">raise hands above this line ↑</div>
+        <div class="badge" id="badge">Starting…</div>
+        <div class="prompt" id="prompt"><span id="promptText"></span><button id="promptClose" title="Dismiss">✕</button></div>
+        <div class="result" id="result">
+          <div class="label" id="resLabel"></div>
+          <div class="conf" id="resConf"></div>
+          <div class="alts" id="resAlts"></div>
+        </div>
+        <div class="overlay-center" id="ovCountdown"><div class="cd-num" id="cdNum">3</div></div>
+        <div class="overlay-center bottom" id="ovRecording">
+          <div class="rec-box">
+            <div class="title">● Recording <span id="recLabel"></span></div>
+            <div class="note" id="recHint"></div>
+            <div class="bar"><div id="recBar"></div></div>
+          </div>
+        </div>
+        <div class="overlay-center bottom" id="ovReview">
+          <div class="review-box">
+            <div class="title">Keep this take?</div>
+            <ul class="warnings" id="reviewWarnings"></ul>
+            <div class="btns">
+              <button class="primary big" id="ovKeep">✔ Keep <kbd>Enter</kbd></button>
+              <button class="big" id="ovDiscard">✖ Discard <kbd>⌫</kbd></button>
+            </div>
+          </div>
+        </div>
+        <div class="camera-msg" id="cameraMsg"></div>
+      </div>
+    </div>
+    <div class="history">
+      <div class="head">
+        <span id="historyTitle">History</span>
+        <span class="spacer"></span>
+        <button id="btnSpace" style="display:none" title="Start a new word">Space</button>
+        <button id="btnBack" style="display:none" title="Delete last letter">⌫</button>
+        <button id="btnClear">Clear</button>
+      </div>
+      <div class="chips" id="chips"><span class="empty-hint">Recognized signs will appear here.</span></div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="tabs">
+      <button data-tab="recognize" class="active">Recognize</button>
+      <button data-tab="teach">Teach</button>
+      <button data-tab="library">Library</button>
+    </div>
+
+    <div class="tab active" id="tab-recognize">
+      <h2>Recognize</h2>
+      <p>Raise your hand above the dashed line and sign. Then <b>hold still</b> for a moment or <b>lower your hands</b>. The app shows its best guess.</p>
+      <div class="row">
+        <label class="toggle"><input type="checkbox" id="spelling"> Spelling mode <kbd>S</kbd></label>
+      </div>
+      <p class="note" style="margin-top:-6px">Spelling mode only considers single letters and joins them into a word. Lower your hands for 1.5 s to start a new word.</p>
+      <div class="row">
+        <label class="toggle"><input type="checkbox" id="paused"> Pause recognition <kbd>P</kbd></label>
+      </div>
+      <div class="card" id="lastCard">
+        <div class="note">Last attempt</div>
+        <div class="scores" id="scores"><p>Nothing yet.</p></div>
+      </div>
+      <p class="note" id="libInfo"></p>
+    </div>
+
+    <div class="tab" id="tab-teach">
+      <div id="teachSetup">
+        <h2>Teach a new sign</h2>
+        <label class="field" for="teachLabel">Sign name</label>
+        <input type="text" id="teachLabel" placeholder="e.g. J or OBRIGADO" maxlength="40" autocomplete="off">
+        <div class="note" id="teachExisting" style="margin-top:6px"></div>
+        <label class="field">Type</label>
+        <div class="kinds">
+          <label><input type="radio" name="kind" value="static" checked><b>Static</b><span>Hold a handshape (most letters)</span></label>
+          <label><input type="radio" name="kind" value="dynamic"><b>With movement</b><span>J, Z and most words</span></label>
+        </div>
+        <div class="row"><button class="primary big" id="teachStart" style="width:100%">Start teaching</button></div>
+        <p class="note">You'll record <b>5 takes</b> (10 is better). Each take has a 3-second countdown. Static signs record 1 second; signs with movement record until your hands go down (max 3 s).</p>
+      </div>
+
+      <div id="teachSession" style="display:none">
+        <div class="teach-title"><span id="tLabel"></span><small id="tKind"></small></div>
+        <div class="takes"><span id="tCount">0 / 5 takes</span><span>10 is better</span></div>
+        <div class="bar"><div id="tBar"></div></div>
+        <div class="card" id="tStatus"></div>
+        <ul class="warnings" id="tWarnings"></ul>
+        <div class="btn-grid">
+          <button class="primary big full" id="tRecord">● Record take <kbd>Space</kbd></button>
+          <button id="tKeep" disabled>✔ Keep <kbd>Enter</kbd></button>
+          <button id="tDiscard" disabled>✖ Discard <kbd>⌫</kbd></button>
+          <button class="primary full" id="tSave" disabled>💾 Save sign</button>
+          <button class="danger full" id="tCancel">Cancel</button>
+        </div>
+        <p class="note">After <b>Keep</b>, the next take starts automatically.</p>
+      </div>
+    </div>
+
+    <div class="tab" id="tab-library">
+      <h2>Library</h2>
+      <p id="libSummary">Loading…</p>
+      <div class="lib-actions">
+        <button id="btnExport">⬇ Export .zip</button>
+        <button id="btnImport">⬆ Import .zip</button>
+        <input type="file" id="importFile" accept=".zip,application/zip" style="display:none">
+      </div>
+      <div id="signList"></div>
+      <p class="note">Hover an example to replay it. Examples marked ⚠ look more like another sign. Deleting them usually improves recognition.</p>
+    </div>
+  </aside>
+</main>
+
+<dialog id="settings">
+  <h2>Settings</h2>
+  <div class="set">
+    <div class="lbl">Confidence threshold <span id="thrVal">50%</span></div>
+    <input type="range" id="threshold" min="0.2" max="0.95" step="0.05" value="0.5">
+    <div class="hint">Below this the app says “Not recognized, try again”.</div>
+  </div>
+  <div class="set">
+    <div class="lbl">Camera</div>
+    <select id="cameraSelect"></select>
+  </div>
+  <div class="set">
+    <label class="toggle"><input type="checkbox" id="mirrorView" checked> Mirror view</label>
+  </div>
+  <div class="set">
+    <label class="toggle"><input type="checkbox" id="eitherHand" checked> Accept signs made with either hand</label>
+    <div class="hint">Lets left-handed people use signs recorded by right-handed people (and the other way round).</div>
+  </div>
+  <div class="set">
+    <div class="lbl">Rest line height <span id="restVal">1.2</span></div>
+    <input type="range" id="restLine" min="0.6" max="1.3" step="0.05" value="1.2">
+    <div class="hint">How high hands must be raised to count as signing (in shoulder widths below the shoulders).</div>
+  </div>
+  <div class="row" style="justify-content:flex-end"><button class="primary" id="settingsClose">Done</button></div>
+</dialog>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+// ------------------------------------------------------------------ settings
+const DEFAULTS = { threshold: 0.5, mirrorView: true, eitherHand: true, restLine: 1.2, spelling: false, cameraId: "" };
+const settings = Object.assign({}, DEFAULTS, loadSettings());
+function loadSettings() { try { return JSON.parse(localStorage.getItem("libras.settings") || "{}"); } catch (e) { return {}; } }
+function saveSettings() { try { localStorage.setItem("libras.settings", JSON.stringify(settings)); } catch (e) {} }
+
+// ------------------------------------------------------------------ state
+let ws = null, connected = false, inFlight = false, sentAt = 0;
+let latest = null;               // last landmarks message
+let paused = false;
+let teach = { phase: "off" };
+let history = [];                // [{label, conf}]
+let words = [], current = "";    // spelling mode
+let lastHandsUpAt = performance.now(), lastLetterAt = 0;
+let resultTimer = null;
+let promptLabel = null;
+let library = [];
+const MAX_FPS = 20, CAPTURE_W = 640;
+
+const video = $("video"), overlay = $("overlay"), octx = overlay.getContext("2d");
+const capture = document.createElement("canvas"), cctx = capture.getContext("2d");
+
+// ------------------------------------------------------------------ toasts
+function toast(msg, kind = "") {
+  const el = document.createElement("div");
+  el.className = "toast " + kind;
+  el.textContent = msg;
+  $("toasts").appendChild(el);
+  setTimeout(() => el.remove(), kind === "bad" ? 6000 : 4000);
+  while ($("toasts").children.length > 4) $("toasts").firstChild.remove();
+}
+
+// ------------------------------------------------------------------ camera
+let stream = null;
+async function startCamera() {
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  const constraints = { video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false };
+  if (settings.cameraId) constraints.video.deviceId = { exact: settings.cameraId };
+  try {
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+  } catch (e) {
+    if (settings.cameraId) { settings.cameraId = ""; saveSettings(); return startCamera(); }
+    showCameraMsg("Camera not available: " + e.message +
+      "<br><br>Allow camera access in Chrome (camera icon in the address bar). " +
+      "Chrome only allows the camera on <b>http://localhost</b> or HTTPS.");
+    return;
+  }
+  $("cameraMsg").classList.remove("show");
+  video.srcObject = stream;
+  await video.play().catch(() => {});
+  await listCameras();
+}
+function showCameraMsg(html) { $("cameraMsg").innerHTML = html; $("cameraMsg").classList.add("show"); }
+async function listCameras() {
+  const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "videoinput");
+  const sel = $("cameraSelect");
+  const activeId = stream && stream.getVideoTracks()[0] && stream.getVideoTracks()[0].getSettings().deviceId;
+  sel.innerHTML = "";
+  devices.forEach((d, i) => {
+    const o = document.createElement("option");
+    o.value = d.deviceId; o.textContent = d.label || ("Camera " + (i + 1));
+    if (d.deviceId === activeId) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+video.addEventListener("loadedmetadata", layout);
+
+// ------------------------------------------------------------------ layout
+function layout() {
+  const wrap = $("stageWrap"), stage = $("stage");
+  const ar = (video.videoWidth && video.videoHeight) ? video.videoWidth / video.videoHeight : 4 / 3;
+  const W = wrap.clientWidth, H = wrap.clientHeight || W / ar;
+  let w = W, h = W / ar;
+  if (h > H) { h = H; w = H * ar; }
+  stage.style.width = Math.floor(w) + "px";
+  stage.style.height = Math.floor(h) + "px";
+  const dpr = window.devicePixelRatio || 1;
+  overlay.width = Math.floor(w * dpr); overlay.height = Math.floor(h * dpr);
+}
+window.addEventListener("resize", layout);
+
+// ------------------------------------------------------------------ websocket
+function connect() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = () => {
+    connected = true; inFlight = false;
+    setConn(true);
+    sendSettings();
+    if (teach.phase !== "off") onTeach({ phase: "off" });   // a new connection starts fresh
+    hidePrompt();
+  };
+  ws.onclose = () => {
+    connected = false; inFlight = false; setConn(false);
+    setTimeout(connect, 1500);
+  };
+  ws.onerror = () => {};
+  ws.onmessage = (ev) => {
+    let msg; try { msg = JSON.parse(ev.data); } catch (e) { return; }
+    handle(msg);
+  };
+}
+function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+function sendSettings(extra = {}) {
+  send(Object.assign({ type: "settings", threshold: settings.threshold, mirror: settings.eitherHand,
+    spelling: settings.spelling, rest_line: settings.restLine, paused }, extra));
+}
+function setConn(ok) {
+  $("pillConn").classList.toggle("ok", ok);
+  $("connText").textContent = ok ? "Python connected" : "Python disconnected";
+  if (!ok) { $("badge").textContent = "Waiting for Python…"; $("badge").className = "badge"; }
+}
+
+// ------------------------------------------------------------------ frame pump
+function pump() {
+  const now = performance.now();
+  if (inFlight && now - sentAt > 2000) inFlight = false;     // lost reply: carry on
+  if (!connected || inFlight || !video.videoWidth || now - sentAt < 1000 / MAX_FPS) return;
+  const scale = Math.min(1, CAPTURE_W / video.videoWidth);
+  const w = Math.round(video.videoWidth * scale), h = Math.round(video.videoHeight * scale);
+  if (capture.width !== w || capture.height !== h) { capture.width = w; capture.height = h; }
+  cctx.drawImage(video, 0, 0, w, h);
+  const url = capture.toDataURL("image/jpeg", 0.75);
+  send({ type: "frame", jpeg: url.slice(url.indexOf(",") + 1) });
+  inFlight = true; sentAt = now;
+}
+
+function loop() {
+  pump();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// ------------------------------------------------------------------ drawing
+const HAND_EDGES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
+  [9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];
+// pose subset: 0 nose, 1/2 ears, 3 L shoulder, 4 R shoulder, 5/6 elbows, 7/8 wrists, 9/10 hips
+const POSE_EDGES = [[3,4],[3,5],[5,7],[4,6],[6,8],[3,9],[4,10],[9,10]];
+const css = getComputedStyle(document.documentElement);
+const COL = { left: css.getPropertyValue("--left").trim(), right: css.getPropertyValue("--right").trim() };
+
+function drawSkeleton(ctx, W, H, lm, opts = {}) {
+  const lw = opts.lineWidth || 3;
+  if (lm.rest_y != null && opts.restLine) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(242,184,75,.55)"; ctx.setLineDash([10, 8]); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, lm.rest_y * H); ctx.lineTo(W, lm.rest_y * H); ctx.stroke();
+    ctx.restore();
+  }
+  if (lm.pose) {
+    ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = lw;
+    for (const [a, b] of POSE_EDGES) {
+      const p = lm.pose[a], q = lm.pose[b];
+      if (!p || !q || p[3] < 0.5 || q[3] < 0.5) continue;
+      ctx.beginPath(); ctx.moveTo(p[0] * W, p[1] * H); ctx.lineTo(q[0] * W, q[1] * H); ctx.stroke();
+    }
+  }
+  if (lm.face) {
+    ctx.fillStyle = "rgba(220,230,240,.75)";
+    const r = Math.max(1.2, lw * 0.6);
+    for (const p of lm.face) { ctx.beginPath(); ctx.arc(p[0] * W, p[1] * H, r, 0, 6.283); ctx.fill(); }
+  }
+  for (const side of ["left", "right"]) {
+    const hand = lm.hands && lm.hands[side];
+    if (!hand) continue;
+    const active = !lm.up || lm.up[side];
+    ctx.globalAlpha = active ? 1 : 0.35;
+    ctx.strokeStyle = COL[side]; ctx.fillStyle = COL[side]; ctx.lineWidth = lw;
+    for (const [a, b] of HAND_EDGES) {
+      ctx.beginPath(); ctx.moveTo(hand[a][0] * W, hand[a][1] * H); ctx.lineTo(hand[b][0] * W, hand[b][1] * H); ctx.stroke();
+    }
+    ctx.fillStyle = "#fff";
+    for (const p of hand) { ctx.beginPath(); ctx.arc(p[0] * W, p[1] * H, lw * 0.9, 0, 6.283); ctx.fill(); }
+    ctx.globalAlpha = 1;
+  }
+}
+
+function draw() {
+  const W = overlay.width, H = overlay.height;
+  octx.clearRect(0, 0, W, H);
+  if (!latest) return;
+  const dpr = window.devicePixelRatio || 1;
+  drawSkeleton(octx, W, H, latest, { lineWidth: 3 * dpr, restLine: true });
+}
+
+// ------------------------------------------------------------------ messages
+function handle(msg) {
+  switch (msg.type) {
+    case "hello": break;
+    case "landmarks": onLandmarks(msg); break;
+    case "state": onState(msg.value); break;
+    case "prediction": onPrediction(msg); break;
+    case "teach": onTeach(msg); break;
+    case "warning": toast(msg.message); break;
+    case "error": toast(msg.message, "bad"); break;
+    case "library_changed": loadLibrary(); break;
+    case "settings": case "pong": break;
+  }
+}
+
+function onLandmarks(msg) {
+  inFlight = false;
+  latest = msg;
+  if (msg.up && (msg.up.left || msg.up.right)) lastHandsUpAt = performance.now();
+  const set = (id, ok) => {
+    const el = $(id); el.classList.toggle("ok", !!ok);
+    el.querySelector(".tick").textContent = ok ? "✔" : "✖";
+  };
+  set("pillLeft", msg.hands && msg.hands.left);
+  set("pillRight", msg.hands && msg.hands.right);
+  set("pillFace", msg.face);
+  $("pillFps").textContent = `${msg.fps || 0} fps · ${Math.round(msg.ms || 0)} ms`;
+  $("pillFps").classList.toggle("ok", (msg.fps || 0) >= 10);
+  const rl = $("restLabel");
+  if (msg.rest_y != null) { rl.style.display = ""; rl.style.top = (msg.rest_y * 100) + "%"; }
+  else rl.style.display = "none";
+}
+
+const STATE_TEXT = {
+  idle: "Ready · raise your hand above the line",
+  signing: "Signing…",
+  recording: "Recording",
+  countdown: "Get ready…",
+  paused: "Paused (press P)",
+};
+function onState(value) {
+  $("badge").textContent = STATE_TEXT[value] || value;
+  $("badge").className = "badge " + value;
+  $("stage").classList.toggle("signing", value === "signing");
+  $("stage").classList.toggle("recording", value === "recording");
+}
+
+// word breaks in spelling mode: hands down for 1.5 s after a letter
+setInterval(() => {
+  const now = performance.now();
+  if (settings.spelling && current && now - lastHandsUpAt > 1500 && now - lastLetterAt > 1500) finishWord();
+}, 250);
+
+function pct(p) { return Math.round(p * 100) + "%"; }
+
+function onPrediction(msg) {
+  const res = $("result");
+  res.classList.add("show"); res.classList.remove("faded", "unknown");
+  clearTimeout(resultTimer);
+  resultTimer = setTimeout(() => res.classList.add("faded"), 5000);
+
+  if (msg.empty) {
+    res.classList.add("unknown");
+    $("resLabel").textContent = "No signs yet";
+    $("resConf").textContent = ""; $("resConf").className = "conf";
+    $("resAlts").textContent = "Open the Teach tab to add one.";
+  } else if (!msg.recognized) {
+    res.classList.add("unknown");
+    $("resLabel").textContent = "Not recognized, try again";
+    $("resConf").textContent = ""; $("resConf").className = "conf";
+    $("resAlts").textContent = msg.label ? `closest: ${msg.label} (${pct(msg.confidence)})` : "";
+  } else {
+    $("resLabel").textContent = msg.label;
+    $("resConf").textContent = pct(msg.confidence);
+    $("resConf").className = "conf " + (msg.confidence >= 0.75 ? "high" : "mid");
+    $("resAlts").textContent = (msg.alternatives || []).map(([l, p]) => `${l} ${pct(p)}`).join(" · ");
+    if (msg.replaces_previous) dropLastHistory();   // e.g. "U" was the start of "NOME"
+    addHistory(msg.label, msg.confidence);
+  }
+
+  // scores card
+  const rows = [];
+  if (msg.label) rows.push([msg.label, msg.confidence]);
+  (msg.alternatives || []).forEach((a) => rows.push(a));
+  $("scores").innerHTML = rows.length ? rows.map(([l, p]) => `
+    <div class="s"><span class="name">${esc(l)}</span><div class="bar"><div style="width:${Math.round(p * 100)}%"></div></div>
+    <span class="pct">${pct(p)}</span></div>`).join("") : "<p>Nothing close.</p>";
+
+  if (msg.prompt) {
+    if (msg.prompt_ok) {
+      showPrompt(`✔ Recognized ${msg.prompt}!`, true);
+      promptLabel = null;
+      setTimeout(() => { if (!promptLabel) hidePrompt(); }, 3500);
+    } else {
+      showPrompt(`Try again: sign ${msg.prompt}`);
+    }
+  }
+}
+
+function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+
+// ------------------------------------------------------------------ history / spelling
+function addHistory(label, conf) {
+  history.push({ label, conf });
+  if (history.length > 40) history.shift();
+  if (settings.spelling) { current += label; lastLetterAt = performance.now(); }
+  renderHistory();
+}
+function dropLastHistory() {
+  const last = history.pop();
+  if (last && settings.spelling && current.endsWith(last.label)) current = current.slice(0, -last.label.length);
+}
+function finishWord() { if (current) { words.push(current); if (words.length > 12) words.shift(); current = ""; renderHistory(); } }
+function renderHistory() {
+  const chips = $("chips");
+  $("btnSpace").style.display = settings.spelling ? "" : "none";
+  $("btnBack").style.display = settings.spelling ? "" : "none";
+  $("historyTitle").textContent = settings.spelling ? "Spelling" : "History";
+  if (settings.spelling) {
+    if (!words.length && !current) { chips.innerHTML = '<span class="empty-hint">Fingerspell letters: they join into a word.</span>'; return; }
+    chips.innerHTML = words.map((w) => `<span class="chip word">${esc(w)}</span>`).join("") +
+      `<span class="chip current">${esc(current) || "&nbsp;"}</span>`;
+  } else {
+    if (!history.length) { chips.innerHTML = '<span class="empty-hint">Recognized signs will appear here.</span>'; return; }
+    chips.innerHTML = history.slice(-20).map((h) => `<span class="chip">${esc(h.label)}<small>${pct(h.conf)}</small></span>`).join("");
+  }
+  chips.scrollLeft = chips.scrollWidth;
+}
+$("btnClear").onclick = () => { history = []; words = []; current = ""; renderHistory(); };
+$("btnSpace").onclick = finishWord;
+$("btnBack").onclick = () => { current = current.slice(0, -1); renderHistory(); };
+
+// ------------------------------------------------------------------ prompt
+function showPrompt(text, ok = false) {
+  $("promptText").textContent = text;
+  $("prompt").classList.add("show"); $("prompt").classList.toggle("ok", ok);
+}
+function hidePrompt() { $("prompt").classList.remove("show", "ok"); }
+$("promptClose").onclick = () => { promptLabel = null; hidePrompt(); send({ type: "settings", prompt: null }); };
+
+// ------------------------------------------------------------------ tabs
+document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => showTab(b.dataset.tab));
+function showTab(name) {
+  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === name));
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.id === "tab-" + name));
+  if (name === "library") loadLibrary();
+  if (name === "teach" && teach.phase === "off") setTimeout(() => $("teachLabel").focus(), 0);
+}
+
+// ------------------------------------------------------------------ teach
+function kindName(k) { return k === "dynamic" ? "with movement" : "static"; }
+$("teachLabel").addEventListener("input", updateExisting);
+function updateExisting() {
+  const label = $("teachLabel").value.trim().toUpperCase();
+  const s = library.find((x) => x.label === label);
+  $("teachExisting").textContent = s ? `“${s.label}” already has ${s.count} example(s) (${kindName(s.kind)}). New takes will be added.` : "";
+  if (s) document.querySelector(`input[name=kind][value=${s.kind}]`).checked = true;
+}
+$("teachStart").onclick = startTeach;
+$("teachLabel").addEventListener("keydown", (e) => { if (e.key === "Enter") startTeach(); });
+function startTeach() {
+  const label = $("teachLabel").value.trim();
+  if (!label) { toast("Type the sign name first"); $("teachLabel").focus(); return; }
+  if (!connected) { toast("Python is not connected", "bad"); return; }
+  const kind = document.querySelector("input[name=kind]:checked").value;
+  send({ type: "teach_start", label, kind });
+  $("teachLabel").blur();
+}
+$("tRecord").onclick = () => send({ type: "teach_record" });
+$("tKeep").onclick = $("ovKeep").onclick = () => send({ type: "teach_keep" });
+$("tDiscard").onclick = $("ovDiscard").onclick = () => send({ type: "teach_discard" });
+$("tSave").onclick = () => send({ type: "teach_save" });
+$("tCancel").onclick = () => {
+  if (teach.count && !confirm(`Discard ${teach.count} recorded take(s)?`)) return;
+  send({ type: "teach_cancel" });
+};
+
+function onTeach(msg) {
+  const prev = teach.phase;
+  teach = msg;
+  const inSession = !["off", "saved"].includes(msg.phase);
+  $("stage").classList.toggle("teaching", inSession);
+  $("teachSetup").style.display = inSession ? "none" : "";
+  $("teachSession").style.display = inSession ? "" : "none";
+  $("ovCountdown").classList.toggle("show", msg.phase === "countdown");
+  $("ovRecording").classList.toggle("show", msg.phase === "recording");
+  $("ovReview").classList.toggle("show", msg.phase === "review");
+
+  if (msg.phase === "saved") {
+    toast(`Saved “${msg.label}” (${msg.count} example${msg.count === 1 ? "" : "s"}). It is recognized now!`, "ok");
+    $("teachLabel").value = ""; $("teachExisting").textContent = "";
+    promptLabel = msg.label;
+    showPrompt(`Now sign ${msg.label}`);
+    showTab("recognize");      // the server also sends library_changed -> loadLibrary()
+    return;
+  }
+  if (!inSession) return;
+  if (prev === "off" || prev === "saved") showTab("teach");
+
+  $("tLabel").textContent = msg.label;
+  $("tKind").textContent = kindName(msg.kind);
+  $("tCount").textContent = `${msg.count} / ${msg.target} takes`;
+  $("tBar").style.width = Math.min(100, msg.count / msg.target * 100) + "%";
+  $("tSave").disabled = msg.count < 1;
+  $("tSave").textContent = msg.count >= msg.target ? "💾 Save sign" : `💾 Save sign (${msg.count} take${msg.count === 1 ? "" : "s"})`;
+  $("tKeep").disabled = !(msg.phase === "review" && msg.can_keep);
+  $("ovKeep").disabled = !(msg.phase === "review" && msg.can_keep);
+  $("tDiscard").disabled = msg.phase !== "review";
+  $("tRecord").disabled = ["countdown", "recording"].includes(msg.phase);
+  $("tRecord").innerHTML = msg.phase === "review" ? "↻ Record again <kbd>Space</kbd>" : "● Record take <kbd>Space</kbd>";
+
+  const status = {
+    ready: msg.count >= msg.target ? "Done! Save the sign, or record more takes (10 is better)." : "Press Record. Get into position during the countdown.",
+    countdown: "Get ready…",
+    recording: msg.kind === "static" ? "Hold the handshape still…" : "Sign now, then lower your hands.",
+    review: "Keep this take?",
+  }[msg.phase] || "";
+  $("tStatus").textContent = status;
+
+  if (msg.phase === "countdown") {
+    const n = Math.ceil(msg.remaining != null ? msg.remaining : 3);
+    $("cdNum").textContent = n > 0 ? n : "Go!";
+  }
+  if (msg.phase === "recording") {
+    $("recLabel").textContent = msg.label;
+    $("recHint").textContent = msg.kind === "static" ? "Hold the handshape still" : "Sign now, then lower your hands";
+    $("recBar").style.width = Math.round((msg.progress || 0) * 100) + "%";
+  }
+  const warns = (msg.warnings || []).map((w) => `<li>${esc(w)}</li>`).join("");
+  $("reviewWarnings").innerHTML = warns || (msg.phase === "review" ? '<li class="ok">Looks good.</li>' : "");
+  $("tWarnings").innerHTML = warns;
+}
+
+// ------------------------------------------------------------------ library
+async function loadLibrary() {
+  try {
+    const r = await fetch("/api/signs");
+    library = (await r.json()).signs;
+  } catch (e) { return; }
+  renderLibrary();
+  updateExisting();
+}
+function renderLibrary() {
+  const total = library.reduce((a, s) => a + s.count, 0);
+  $("libSummary").textContent = library.length ? `${library.length} sign${library.length === 1 ? "" : "s"} · ${total} example${total === 1 ? "" : "s"}` : "No signs yet. Use the Teach tab to add one.";
+  $("libInfo").textContent = library.length ? `Knows: ${library.map((s) => s.label).join(", ")}` : "The library is empty: teach a sign first.";
+  const open = new Set([...document.querySelectorAll(".sign.open")].map((e) => e.dataset.label));
+  const list = $("signList");
+  list.innerHTML = "";
+  for (const s of library) {
+    const flagged = s.samples.filter((x) => x.looks_like).length;
+    const el = document.createElement("div");
+    el.className = "sign" + (open.has(s.label) ? " open" : "");
+    el.dataset.label = s.label;
+    el.innerHTML = `
+      <div class="sign-head">
+        <span class="name">${esc(s.label)}</span>
+        ${flagged ? `<span class="flag">⚠ ${flagged}</span>` : ""}
+        <span class="kind-badge">${s.kind === "dynamic" ? "movement" : "static"}</span>
+        <span class="count">${s.count} ex.</span>
+      </div>
+      <div class="sign-body">
+        <div class="samples"></div>
+        <div class="sign-actions">
+          <button class="add">+ Add takes</button>
+          <button class="danger del-sign">Delete sign</button>
+        </div>
+      </div>`;
+    el.querySelector(".sign-head").onclick = () => { el.classList.toggle("open"); if (el.classList.contains("open")) fillSamples(el, s); };
+    el.querySelector(".add").onclick = () => {
+      $("teachLabel").value = s.label; updateExisting(); showTab("teach");
+    };
+    el.querySelector(".del-sign").onclick = async () => {
+      if (!confirm(`Delete the sign “${s.label}” and its ${s.count} example(s)?`)) return;
+      await fetch(`/api/signs/${encodeURIComponent(s.label)}`, { method: "DELETE" });
+      toast(`Deleted ${s.label}`, "ok"); loadLibrary();
+    };
+    list.appendChild(el);
+    if (el.classList.contains("open")) fillSamples(el, s);
+  }
+}
+
+const sampleCache = new Map();
+async function getSample(id) {
+  if (!sampleCache.has(id)) {
+    const r = await fetch(`/api/samples/${encodeURIComponent(id)}`);
+    if (!r.ok) throw new Error("sample missing");
+    sampleCache.set(id, await r.json());
+  }
+  return sampleCache.get(id);
+}
+function fillSamples(el, s) {
+  const box = el.querySelector(".samples");
+  box.innerHTML = "";
+  for (const smp of s.samples) {
+    const d = document.createElement("div");
+    d.className = "sample" + (smp.looks_like ? " flagged" : "");
+    d.innerHTML = `<canvas width="192" height="144"></canvas><button class="del" title="Delete this example">✕</button>` +
+      (smp.looks_like ? `<div class="tag">looks like ${esc(smp.looks_like)}</div>` : "");
+    box.appendChild(d);
+    const cv = d.querySelector("canvas"), cx = cv.getContext("2d");
+    let timer = null, data = null;
+    const paint = (i) => {
+      cx.fillStyle = "#000"; cx.fillRect(0, 0, cv.width, cv.height);
+      if (!data || !data.frames.length) return;
+      cx.save();
+      if (settings.mirrorView) { cx.translate(cv.width, 0); cx.scale(-1, 1); }
+      drawSkeleton(cx, cv.width, cv.height, data.frames[i], { lineWidth: 1.6 });
+      cx.restore();
+    };
+    getSample(smp.id).then((j) => { data = j; paint(Math.floor(j.frames.length / 2)); }).catch(() => {});
+    d.onmouseenter = () => {
+      if (!data) return;
+      let i = 0;
+      timer = setInterval(() => { paint(i); i = (i + 1) % data.frames.length; }, 66);
+    };
+    d.onmouseleave = () => { clearInterval(timer); if (data) paint(Math.floor(data.frames.length / 2)); };
+    d.querySelector(".del").onclick = async (e) => {
+      e.stopPropagation();
+      if (!confirm("Delete this example?")) return;
+      await fetch(`/api/samples/${encodeURIComponent(smp.id)}`, { method: "DELETE" });
+      sampleCache.delete(smp.id);
+      loadLibrary();
+    };
+  }
+}
+$("btnExport").onclick = () => { location.href = "/api/export"; };
+$("btnImport").onclick = () => $("importFile").click();
+$("importFile").onchange = async () => {
+  const f = $("importFile").files[0];
+  if (!f) return;
+  const r = await fetch("/api/import", { method: "POST", body: f, headers: { "Content-Type": "application/zip" } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) toast("Import failed: " + (j.detail || r.status), "bad");
+  else toast(`Imported ${j.added} example(s)` + (j.skipped ? `, ${j.skipped} already present` : "") +
+             (j.conflicts && j.conflicts.length ? `. Skipped (type conflict): ${j.conflicts.join(", ")}` : ""), "ok");
+  $("importFile").value = "";
+  loadLibrary();
+};
+
+// ------------------------------------------------------------------ settings UI
+function applySettingsUI() {
+  $("threshold").value = settings.threshold; $("thrVal").textContent = pct(settings.threshold);
+  $("mirrorView").checked = settings.mirrorView; $("media").classList.toggle("mirror", settings.mirrorView);
+  $("eitherHand").checked = settings.eitherHand;
+  $("restLine").value = settings.restLine; $("restVal").textContent = Number(settings.restLine).toFixed(2);
+  $("spelling").checked = settings.spelling;
+  renderHistory();
+}
+$("settingsBtn").onclick = () => $("settings").showModal();
+$("settingsClose").onclick = () => $("settings").close();
+$("threshold").oninput = (e) => { settings.threshold = +e.target.value; $("thrVal").textContent = pct(settings.threshold); saveSettings(); sendSettings(); };
+$("mirrorView").onchange = (e) => { settings.mirrorView = e.target.checked; saveSettings(); applySettingsUI(); };
+$("eitherHand").onchange = (e) => { settings.eitherHand = e.target.checked; saveSettings(); sendSettings(); };
+$("restLine").oninput = (e) => { settings.restLine = +e.target.value; $("restVal").textContent = settings.restLine.toFixed(2); saveSettings(); sendSettings(); };
+$("cameraSelect").onchange = (e) => { settings.cameraId = e.target.value; saveSettings(); startCamera(); };
+$("spelling").onchange = (e) => setSpelling(e.target.checked);
+$("paused").onchange = (e) => setPaused(e.target.checked);
+function setSpelling(on) { settings.spelling = on; saveSettings(); $("spelling").checked = on; sendSettings(); renderHistory(); }
+function setPaused(on) { paused = on; $("paused").checked = on; sendSettings(); }
+
+// ------------------------------------------------------------------ keyboard
+// Don't leave buttons focused: Space/Enter are shortcuts and must not also "click" them.
+document.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) b.blur(); });
+document.addEventListener("keydown", (e) => {
+  const typing = ["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName) &&
+                 document.activeElement.type !== "checkbox" && document.activeElement.type !== "radio" &&
+                 document.activeElement.type !== "range";
+  if (typing || $("settings").open || e.metaKey || e.ctrlKey || e.altKey) return;
+  const inTeach = !["off", "saved"].includes(teach.phase);
+  if (inTeach) {
+    if (e.code === "Space") { e.preventDefault(); if (!["countdown", "recording"].includes(teach.phase)) send({ type: "teach_record" }); return; }
+    if (e.key === "Enter" && teach.phase === "review" && teach.can_keep) { e.preventDefault(); send({ type: "teach_keep" }); return; }
+    if ((e.key === "Backspace" || e.key === "Delete") && teach.phase === "review") { e.preventDefault(); send({ type: "teach_discard" }); return; }
+    if (e.key === "Escape") { $("tCancel").click(); return; }
+  }
+  if (e.key === "p" || e.key === "P") setPaused(!paused);
+  if (e.key === "s" || e.key === "S") setSpelling(!settings.spelling);
+  if (settings.spelling && e.key === "Backspace" && !inTeach) { e.preventDefault(); $("btnBack").click(); }
+});
+
+// ------------------------------------------------------------------ start
+applySettingsUI();
+layout();
+connect();
+loadLibrary();
+startCamera();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
